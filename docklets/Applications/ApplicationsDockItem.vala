@@ -23,7 +23,7 @@ namespace Docky {
     private GMenu.Tree menu_tree;
     private Gtk.Menu? menu_widget = null;
     private Gee.ArrayList<Gtk.MenuItem>? menu_items = null;
-    private ApplicationsGrid? grid = null;
+    private StackGrid? grid = null;
     private bool apps_loaded = false;
     private bool load_in_progress = false;
     private bool reload_requested = false;
@@ -319,7 +319,10 @@ namespace Docky {
         return;
       }
 
-      grid = ApplicationsGrid.show_for(controller, this, get_grid_entries(), event_time);
+      grid = StackGrid.show_for(controller, this, get_grid_entries(), _("Applications"), _("Open in Files"), event_time);
+      grid.footer_activated.connect(() => {
+        System.get_default().open(File.new_for_path("/usr/share/applications"));
+      });
       grid.closed.connect(() => {
         grid = null;
         on_menu_hide();
@@ -330,8 +333,8 @@ namespace Docky {
     /**
      * Every application in the menu tree once, sorted by name.
      */
-    private Gee.List<ApplicationsGridEntry> get_grid_entries() {
-      var entries = new Gee.ArrayList<ApplicationsGridEntry> ();
+    private Gee.List<StackGridEntry> get_grid_entries() {
+      var entries = new Gee.ArrayList<StackGridEntry> ();
       if (!load_in_progress && apps_loaded && menu_tree != null) {
         var seen = new Gee.HashSet<string> ();
         collect_grid_entries(menu_tree.get_root_directory(), entries, seen);
@@ -341,7 +344,7 @@ namespace Docky {
     }
 
     private void collect_grid_entries(GMenu.TreeDirectory? directory,
-                                      Gee.List<ApplicationsGridEntry> entries, Gee.Set<string> seen) {
+                                      Gee.List<StackGridEntry> entries, Gee.Set<string> seen) {
       if (directory == null) {
         return;
       }
@@ -363,7 +366,10 @@ namespace Docky {
           if (icon == "") {
             icon = "application-x-executable";
           }
-          entries.add(new ApplicationsGridEntry(info.get_display_name() ?? _("Unknown"), icon, desktop_path));
+          var grid_entry = new StackGridEntry(info.get_display_name() ?? _("Unknown"), icon);
+          var path = desktop_path;
+          grid_entry.activated.connect(() => System.get_default().launch(File.new_for_path(path)));
+          entries.add(grid_entry);
         }
       }
     }

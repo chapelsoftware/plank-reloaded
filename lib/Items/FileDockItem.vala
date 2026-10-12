@@ -220,12 +220,121 @@ namespace Plank {
     }
 
     protected override AnimationType on_clicked (PopupButton button, Gdk.ModifierType mod, uint32 event_time) {
+      if (button == PopupButton.LEFT && Prefs.StackView && OwnedFile.query_file_type (0) == FileType.DIRECTORY) {
+        toggle_stack (event_time);
+        return AnimationType.NONE;
+      }
+
       if (button == PopupButton.LEFT || button == PopupButton.MIDDLE) {
         launch ();
         return AnimationType.BOUNCE;
       }
 
       return AnimationType.NONE;
+    }
+
+    StackGrid? stack = null;
+
+    // Opens the directory's contents in a stack grid above the item, or
+    // closes it when it is open
+    void toggle_stack (uint32 event_time) {
+      if (stack != null) {
+        stack.close_grid ();
+        return;
+      }
+
+      unowned DockController? controller = get_dock ();
+      if (controller == null)
+        return;
+
+      stack = StackGrid.show_for (controller, this, get_stack_entries (), Text, _("Open in Files"), event_time);
+      stack.footer_activated.connect (() => launch ());
+      stack.closed.connect (() => {
+        stack = null;
+
+        // The dock stays as it was while the grid was open, as for a menu
+        controller.renderer.animated_draw ();
+        controller.hide_manager.update_hovered ();
+        if (!controller.hide_manager.Hovered)
+          controller.window.update_hovered (0, 0);
+      });
+
+      controller.window.update_hovered (0, 0);
+      controller.renderer.animated_draw ();
+    }
+
+    // The directory's files, sorted like its menu, each opening its file
+    Gee.List<StackGridEntry> get_stack_entries () {
+      var infos = new Gee.ArrayList<FileInfo> ();
+      var count = 0U;
+
+      try {
+        var enumerator = OwnedFile.enumerate_children (FileAttribute.STANDARD_NAME + ","
+                                                       + FileAttribute.STANDARD_DISPLAY_NAME + ","
+                                                       + FileAttribute.STANDARD_IS_HIDDEN + ","
+                                                       + FileAttribute.STANDARD_TYPE + ","
+                                                       + FileAttribute.STANDARD_CONTENT_TYPE + ","
+                                                       + FileAttribute.STANDARD_SIZE + ","
+                                                       + FileAttribute.TIME_MODIFIED + ","
+                                                       + FileAttribute.TIME_CREATED, 0);
+        FileInfo info;
+        while ((info = enumerator.next_file ()) != null) {
+          if (!Prefs.ShowHiddenFiles && info.get_is_hidden ())
+            continue;
+
+          if (count++ >= FOLDER_MAX_FILE_COUNT) {
+            critical ("There are way too many files (%u+) in '%s'.", FOLDER_MAX_FILE_COUNT, OwnedFile.get_path ());
+            break;
+          }
+
+          infos.add (info);
+        }
+      } catch (Error e) {
+        warning ("Could not list '%s': %s", OwnedFile.get_path (), e.message);
+      }
+
+      infos.sort (compare_stack_infos);
+
+      var entries = new Gee.ArrayList<StackGridEntry> ();
+      foreach (var info in infos) {
+        var file = OwnedFile.get_child (info.get_name ());
+        var entry = new StackGridEntry (info.get_display_name () ?? info.get_name (),
+                                        DrawingService.get_icon_from_file (file) ?? "text-x-generic");
+        entry.activated.connect (() => System.get_default ().open (file));
+        entries.add (entry);
+      }
+
+      return entries;
+    }
+
+    int compare_stack_infos (FileInfo a, FileInfo b) {
+      var a_is_dir = (a.get_file_type () == FileType.DIRECTORY);
+      var b_is_dir = (b.get_file_type () == FileType.DIRECTORY);
+      unowned string a_name = a.get_display_name () ?? a.get_name ();
+      unowned string b_name = b.get_display_name () ?? b.get_name ();
+
+      switch (Prefs.SortBy) {
+      case "kind":
+        if (a_is_dir != b_is_dir)
+          return a_is_dir ? -1 : 1;
+        var by_type = (a.get_content_type () ?? "").collate (b.get_content_type () ?? "");
+        return by_type != 0 ? by_type : a_name.collate (b_name);
+      case "size":
+        if (a.get_size () == b.get_size ())
+          return a_name.collate (b_name);
+        return (b.get_size () > a.get_size ()) ? 1 : -1;
+      case "date-created":
+      case "date-modified":
+        // Newest first, like the menu
+        var attribute = (Prefs.SortBy == "date-created" ? FileAttribute.TIME_CREATED : FileAttribute.TIME_MODIFIED);
+        var a_time = a.get_attribute_uint64 (attribute);
+        var b_time = b.get_attribute_uint64 (attribute);
+        if (a_time == b_time)
+          return a_name.collate (b_name);
+        return (b_time > a_time) ? 1 : -1;
+      default:
+        return a_name.collate (b_name);
+      }
     }
 
     public override bool can_be_removed () {
@@ -270,6 +379,13 @@ namespace Plank {
       }
 
       items.add (new Gtk.SeparatorMenuItem ());
+
+      var stack_item = new Gtk.CheckMenuItem.with_mnemonic (_("Show as _Stack"));
+      stack_item.active = Prefs.StackView;
+      stack_item.activate.connect (() => {
+        Prefs.StackView = !Prefs.StackView;
+      });
+      items.add (stack_item);
 
       var view_options_item = new Gtk.MenuItem.with_mnemonic (_("_View Options"));
       view_options_item.activate.connect (() => {

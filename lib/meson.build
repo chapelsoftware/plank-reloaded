@@ -55,6 +55,7 @@ plank_lib_sources = [
   'Widgets/PoofWindow.vala',
   'Widgets/PreferencesWindow.vala',
   'Widgets/PreviewWindow.vala',
+  'Widgets/StackGrid.vala',
   'Widgets/TitledSeparatorMenuItem.vala',
 ]
 

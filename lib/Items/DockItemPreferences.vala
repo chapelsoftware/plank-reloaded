@@ -42,6 +42,9 @@ namespace Plank {
     [Description (nick = "large-icons", blurb = "Use large icons.")]
     public bool LargeIcons { get; set; default = false; }
 
+    [Description (nick = "stack-view", blurb = "Show a directory item's contents in a grid above it when it is clicked.")]
+    public bool StackView { get; set; default = false; }
+
     /**
      * {@inheritDoc}
      */
@@ -76,6 +79,7 @@ namespace Plank {
       DirectoryStyle = DirStyle.SIMPLE;
       ShowHiddenFiles = false;
       LargeIcons = false;
+      StackView = false;
     }
 
     /**
