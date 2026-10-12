@@ -37,7 +37,14 @@ namespace Docky {
    * icon with its name in a scrollable grid. A search field at the top
    * filters the grid as you type, and Enter launches the first match.
    * Launching an application, pressing Escape on an empty search or
-   * clicking anywhere else closes it.
+   * activating any other window closes it.
+   *
+   * It is an ordinary undecorated window that takes keyboard focus, not a
+   * popup holding a keyboard grab, so global shortcuts such as Print Screen
+   * keep working while it is open. It closes when the window manager makes
+   * another window active rather than on focus-out, because a global
+   * shortcut's key grab also sends focus-out and would close it before a
+   * screenshot could include it.
    *
    * The window gets its own WM class so a compositor can blur what is behind
    * it, and its shape follows the panel and arrow so the blur does too.
@@ -130,6 +137,8 @@ namespace Docky {
     string query = "";
     int arrow_x = 0;
     bool closing = false;
+    bool was_active = false;
+    ulong active_window_handler = 0;
 
     /**
      * Shows the grid for the given dock item, pointing at it.
@@ -144,15 +153,19 @@ namespace Docky {
       int target_x, target_y;
       controller.position_manager.get_hover_position(item, out target_x, out target_y);
       grid.place(target_x, target_y);
-      grid.show();
-      grid.grab(event_time);
+      grid.present_with_time(event_time);
       grid.search.grab_focus();
       return grid;
     }
 
     ApplicationsGrid(Gtk.PositionType position, Gee.List<ApplicationsGridEntry> entries) {
-      Object(type : Gtk.WindowType.POPUP, type_hint : Gdk.WindowTypeHint.POPUP_MENU);
+      Object(type : Gtk.WindowType.TOPLEVEL, type_hint : Gdk.WindowTypeHint.UTILITY);
       this.position = position;
+      decorated = false;
+      resizable = false;
+      skip_taskbar_hint = true;
+      skip_pager_hint = true;
+      set_keep_above(true);
 
       // Before realize: a WM class of its own lets the compositor blur
       // behind the grid without blurring behind the dock.
@@ -238,10 +251,8 @@ namespace Docky {
       box.pack_start(footer, false, false, 0);
       add(box);
 
-      add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.KEY_PRESS_MASK);
-      button_press_event.connect(on_button_press);
       key_press_event.connect(on_key_press);
-      grab_broken_event.connect(() => { close_grid(); return false; });
+      active_window_handler = Plank.get_wnck_screen().active_window_changed.connect(on_active_window_changed);
       size_allocate.connect(update_shape);
     }
 
@@ -365,14 +376,17 @@ namespace Docky {
       move(x, y);
     }
 
-    void grab(uint32 event_time) {
-      realize();
-      var gdk_window = get_window();
-      var seat = get_display().get_default_seat();
-      if (seat.grab(gdk_window, Gdk.SeatCapabilities.ALL, true, null, null, null) != Gdk.GrabStatus.SUCCESS) {
-        warning("Could not grab input for the applications grid");
+    void on_active_window_changed() {
+      unowned Wnck.Window? active = Plank.get_wnck_screen().get_active_window();
+      if (active != null && active.get_class_instance_name() == "plank-stack") {
+        was_active = true;
+        return;
       }
-      Gtk.grab_add(this);
+      // Only once the grid has been active, so its own opening doesn't count
+      if (was_active) {
+        // Close once the signal is done rather than inside its handler
+        Idle.add(() => { close_grid(); return false; });
+      }
     }
 
     public signal void closed();
@@ -383,30 +397,12 @@ namespace Docky {
       }
       closing = true;
 
-      Gtk.grab_remove(this);
-      get_display().get_default_seat().ungrab();
+      if (active_window_handler > 0) {
+        Plank.get_wnck_screen().disconnect(active_window_handler);
+        active_window_handler = 0;
+      }
       closed();
       destroy();
-    }
-
-    bool on_button_press(Gdk.EventButton event) {
-      int width = get_allocated_width();
-      int height = get_allocated_height();
-      if (event.window != get_window() && !is_own_window(event.window)
-          || event.x < 0 || event.y < 0 || event.x >= width || event.y >= height) {
-        close_grid();
-        return true;
-      }
-      return false;
-    }
-
-    bool is_own_window(Gdk.Window? window) {
-      for (var w = window; w != null; w = w.get_parent()) {
-        if (w == get_window()) {
-          return true;
-        }
-      }
-      return false;
     }
 
     bool on_key_press(Gdk.EventKey event) {
