@@ -104,7 +104,7 @@ namespace Plank {
     [Description (nick = "badge-color", blurb = "The color (RGBA) of the badge displaying urgent count")]
     public Color BadgeColor { get; set; }
 
-    [Description (nick = "badge-style", blurb = "The badge style, styles: indicator-color, solid")]
+    [Description (nick = "badge-style", blurb = "The badge style, styles: indicator-color, solid, apple")]
     public BadgeStyleType BadgeStyle { get; set; }
 
     [Description (nick = "badge-text-color", blurb = "The color (RGBA) of the badge text")]
@@ -520,6 +520,78 @@ namespace Plank {
     }
 
     /**
+     * Draws a macOS-style badge: a flat circle that widens into a pill for
+     * longer counts, pinned to the icon's top-right corner, with centered
+     * white text and a soft drop shadow. BadgeColor and BadgeTextColor
+     * override the default Apple red and white when set.
+     */
+    void draw_apple_item_count (Surface surface, int icon_size, int64 count) {
+      Color fill = BadgeColor;
+      if (fill.equal ({ 0.0, 0.0, 0.0, 0.0 }))
+        fill = { 1.0, 59 / 255.0, 48 / 255.0, 1.0 };
+      Color text_color = BadgeTextColor;
+      if (text_color.equal ({ 0.0, 0.0, 0.0, 0.0 }))
+        text_color = { 1.0, 1.0, 1.0, 1.0 };
+
+      var text = count.to_string ();
+      var diameter = Math.round (icon_size * 0.375);
+
+      var layout = new Pango.Layout (Gdk.pango_context_get ());
+      var font_description = Pango.FontDescription.from_string ("SF Pro Text,Inter");
+      font_description.set_weight (Pango.Weight.MEDIUM);
+      font_description.set_absolute_size (diameter * 0.6 * Pango.SCALE);
+      layout.set_font_description (font_description);
+      layout.set_text (text, -1);
+      Pango.Rectangle ink_rect;
+      layout.get_pixel_extents (out ink_rect, null);
+
+      var max_width = icon_size - 2.0;
+      var width = double.min (max_width, double.max (diameter, Math.round (ink_rect.width + diameter * 0.6)));
+      var radius = diameter / 2.0;
+
+      var left = (surface.Width - icon_size) / 2.0;
+      var top = (surface.Height - icon_size) / 2.0;
+      var x = Math.round (Gtk.Widget.get_default_direction () == Gtk.TextDirection.RTL ? left + 1.0 : left + icon_size - width - 1.0);
+      var y = Math.round (top + 1.0);
+
+      // Soft shadow: the pill drawn dark on a scratch surface, blurred, then
+      // laid under the badge a little lower.
+      var blur = int.max (1, (int) Math.round (diameter * 0.08));
+      var shadow = new Surface.with_surface (surface.Width, surface.Height, surface);
+      unowned Cairo.Context scr = shadow.Context;
+      pill_path (scr, x, y, width, diameter, radius);
+      scr.set_source_rgba (0.0, 0.0, 0.0, 0.35);
+      scr.fill ();
+      shadow.gaussian_blur (blur);
+
+      unowned Cairo.Context cr = surface.Context;
+      cr.save ();
+      cr.set_source_surface (shadow.Internal, 0.0, double.max (1.0, Math.round (diameter * 0.04)));
+      cr.paint ();
+
+      pill_path (cr, x, y, width, diameter, radius);
+      cr.set_source_rgba (fill.red, fill.green, fill.blue, fill.alpha);
+      cr.fill ();
+
+      // Center the digits by their ink, not their line box, so they sit
+      // optically centered like Apple's.
+      var scale = double.min (1.0, (width - diameter * 0.3) / ink_rect.width);
+      cr.translate (x + width / 2.0, y + diameter / 2.0);
+      cr.scale (scale, scale);
+      cr.move_to (-(ink_rect.x + ink_rect.width / 2.0), -(ink_rect.y + ink_rect.height / 2.0));
+      cr.set_source_rgba (text_color.red, text_color.green, text_color.blue, text_color.alpha);
+      Pango.cairo_show_layout (cr, layout);
+      cr.restore ();
+    }
+
+    static void pill_path (Cairo.Context cr, double x, double y, double width, double height, double radius) {
+      cr.new_sub_path ();
+      cr.arc (x + width - radius, y + radius, radius, -Math.PI_2, Math.PI_2);
+      cr.arc (x + radius, y + radius, radius, Math.PI_2, 3 * Math.PI_2);
+      cr.close_path ();
+    }
+
+    /**
      * Draws a badge for an item.
      *
      * @param surface the surface to draw the badge onto
@@ -528,6 +600,11 @@ namespace Plank {
      * @param count the number for the badge to show
      */
     public void draw_item_count (Surface surface, int icon_size, Color color, int64 count) {
+      if (BadgeStyle == BadgeStyleType.APPLE) {
+        draw_apple_item_count (surface, icon_size, count);
+        return;
+      }
+
       unowned Cairo.Context cr = surface.Context;
 
       var x = (surface.Width - icon_size) / 2.0;
@@ -841,7 +918,7 @@ namespace Plank {
         break;
 
       case "BadgeStyle":
-        if (BadgeStyle < 0 || BadgeStyle > 1)
+        if (BadgeStyle < 0 || BadgeStyle > BadgeStyleType.APPLE)
           BadgeStyle = BadgeStyleType.LEGACY;
         break;
 

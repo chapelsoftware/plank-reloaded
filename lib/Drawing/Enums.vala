@@ -82,6 +82,11 @@ namespace Plank {
     /**
      * A solid color defined by the theme
      */
-    SOLID
+    SOLID,
+    /**
+     * A flat red circle (a pill for longer counts) at the top-right corner
+     * with white text and a soft shadow, like the macOS dock
+     */
+    APPLE
   }
 }
