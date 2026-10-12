@@ -138,6 +138,11 @@ namespace Plank {
       if (open && (item == null || item == shown_item))
         return (item != null);
 
+      // Previews that open on a click never open or move on hover, so other
+      // items show their tooltips
+      if (controller.prefs.PreviewsOnClick)
+        return false;
+
       var app_item = (item as ApplicationDockItem);
       var has_previews = (app_item != null && can_show () && !app_item.get_window_list ().is_empty);
 
@@ -190,6 +195,30 @@ namespace Plank {
         return;
       }
 
+      show (item);
+    }
+
+    /**
+     * Whether a left click on the item opens its window previews rather
+     * than focusing it: previews open on a click and it has more than one
+     * window to choose from.
+     *
+     * @param item the clicked item
+     */
+    internal bool previews_on_click (DockItem item) {
+      var app_item = (item as ApplicationDockItem);
+      return (controller.prefs.PreviewsOnClick && app_item != null && can_show ()
+              && app_item.get_window_list ().size > 1);
+    }
+
+    /**
+     * Opens the item's window previews for a click.
+     *
+     * @param item the clicked item
+     */
+    internal void show_for_click (ApplicationDockItem item) {
+      stop_open_timer ();
+      controller.hover.hide ();
       show (item);
     }
 

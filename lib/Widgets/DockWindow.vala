@@ -69,6 +69,11 @@ namespace Plank {
     bool long_press_active = false;
     uint long_press_button = 0U;
 
+    // The last button release handled, since each click can reach the dock
+    // twice with the same time
+    uint32 last_release_time = 0U;
+    uint last_release_button = 0U;
+
     Gdk.Rectangle input_rect;
     int requested_x;
     int requested_y;
@@ -105,6 +110,7 @@ namespace Plank {
 
       controller.prefs.notify["HideMode"].connect (update_struts);
 
+
       // Remove WM_TAKE_FOCUS after realization to prevent focus
       // stealing under focus-follows-mouse / sloppy focus policies.
       realize.connect (() => {
@@ -135,6 +141,7 @@ namespace Plank {
     /**
      * {@inheritDoc}
      */
+
     public override bool button_press_event (Gdk.EventButton event) {
       if (menu_is_visible ())
         return Gdk.EVENT_PROPAGATE;
@@ -181,8 +188,16 @@ namespace Plank {
       if (controller.hide_manager.Hidden)
         return Gdk.EVENT_STOP;
 
+      // A repeat of the release just handled would close the window previews
+      // that its click opened
+      if (event.time != 0U && event.time == last_release_time && event.button == last_release_button)
+        return Gdk.EVENT_STOP;
+      last_release_time = event.time;
+      last_release_button = event.button;
+
       // Like the menu, window previews close on a click anywhere on the dock,
       // a long press included
+      unowned ApplicationDockItem? previewed_item = controller.preview_manager.shown_item;
       controller.preview_manager.dismiss ();
 
       if (long_press_timer_id > 0U) {
@@ -206,6 +221,18 @@ namespace Plank {
       if (ClickedItem != null && HoveredItem == ClickedItem && !menu_is_visible ()) {
         // The user made a choice so hide tooltip to avoid obstructing anything
         controller.hover.hide ();
+
+        // With previews on click, a plain left click on an application with
+        // several windows opens its previews, or closes them if they were
+        // already open for it, instead of focusing it
+        var plain_left = (event.button == 1
+                          && (event.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.MOD1_MASK)) == 0);
+        if (plain_left && controller.preview_manager.previews_on_click (HoveredItem)) {
+          if (previewed_item != HoveredItem)
+            controller.preview_manager.show_for_click ((ApplicationDockItem) HoveredItem);
+          ClickedItem = null;
+          return Gdk.EVENT_PROPAGATE;
+        }
 
         HoveredItem.clicked (PopupButton.from_event_button (event), event.state, event.time);
       }

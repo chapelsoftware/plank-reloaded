@@ -162,6 +162,11 @@
 			<summary>Window preview size</summary>
 			<description>The largest width of a window preview's thumbnail, in pixels.</description>
 		</key>
+		<key name="previews-on-click" type="b">
+			<default>false</default>
+			<summary>Show window previews when items are clicked</summary>
+			<description>If true (and previews are enabled), clicking an application's dock item while it has more than one window shows previews of its windows, and hovering shows its tooltip.</description>
+		</key>
 		<key name="previews-enabled" type="b">
 			<default>false</default>
 			<summary>Show window previews when items are hovered</summary>

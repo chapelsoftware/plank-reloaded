@@ -123,6 +123,9 @@ namespace Plank {
     [Description (nick = "previews-enabled", blurb = "Whether to show previews of an application's windows instead of a tooltip when its item is hovered.")]
     public bool PreviewsEnabled { get; set; }
 
+    [Description (nick = "previews-on-click", blurb = "Whether window previews open when an application with more than one window is clicked, instead of when it is hovered.")]
+    public bool PreviewsOnClick { get; set; }
+
     [Description (nick = "preview-delay", blurb = "Time (in ms) to wait before showing window previews.")]
     public uint PreviewDelay { get; set; }
 
