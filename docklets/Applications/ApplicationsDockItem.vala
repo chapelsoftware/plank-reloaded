@@ -23,6 +23,7 @@ namespace Docky {
     private GMenu.Tree menu_tree;
     private Gtk.Menu? menu_widget = null;
     private Gee.ArrayList<Gtk.MenuItem>? menu_items = null;
+    private ApplicationsGrid? grid = null;
     private bool apps_loaded = false;
     private bool load_in_progress = false;
     private bool reload_requested = false;
@@ -116,6 +117,10 @@ namespace Docky {
       icon_theme.changed.disconnect(on_apps_menu_changed);
 
       destroy_menu();
+
+      if (grid != null) {
+        grid.close_grid();
+      }
     }
 
     private void remove_update_timer() {
@@ -248,7 +253,11 @@ namespace Docky {
     protected override AnimationType on_clicked(PopupButton button,
                                                 Gdk.ModifierType mod, uint32 event_time) {
       if ((button & PopupButton.LEFT) != 0) {
-        show_applications_menu();
+        if (prefs.GridView) {
+          toggle_applications_grid(event_time);
+        } else {
+          show_applications_menu();
+        }
         return AnimationType.NONE;
       }
 
@@ -297,6 +306,66 @@ namespace Docky {
       }
 
       Helpers.popup_docklet_menu(controller, this, menu_widget);
+    }
+
+    private void toggle_applications_grid(uint32 event_time) {
+      if (grid != null) {
+        grid.close_grid();
+        return;
+      }
+
+      DockController? controller = get_dock();
+      if (controller == null) {
+        return;
+      }
+
+      grid = ApplicationsGrid.show_for(controller, this, get_grid_entries(), event_time);
+      grid.closed.connect(() => {
+        grid = null;
+        on_menu_hide();
+      });
+      on_menu_show();
+    }
+
+    /**
+     * Every application in the menu tree once, sorted by name.
+     */
+    private Gee.List<ApplicationsGridEntry> get_grid_entries() {
+      var entries = new Gee.ArrayList<ApplicationsGridEntry> ();
+      if (!load_in_progress && apps_loaded && menu_tree != null) {
+        var seen = new Gee.HashSet<string> ();
+        collect_grid_entries(menu_tree.get_root_directory(), entries, seen);
+        entries.sort((a, b) => strcmp(a.name.collate_key(), b.name.collate_key()));
+      }
+      return entries;
+    }
+
+    private void collect_grid_entries(GMenu.TreeDirectory? directory,
+                                      Gee.List<ApplicationsGridEntry> entries, Gee.Set<string> seen) {
+      if (directory == null) {
+        return;
+      }
+
+      var iter = directory.iter();
+      GMenu.TreeItemType type;
+      while ((type = iter.next()) != GMenu.TreeItemType.INVALID) {
+        if (type == GMenu.TreeItemType.DIRECTORY) {
+          collect_grid_entries(iter.get_directory(), entries, seen);
+        } else if (type == GMenu.TreeItemType.ENTRY) {
+          var entry = iter.get_entry();
+          var info = entry != null ? entry.get_app_info() : null;
+          var desktop_path = entry != null ? entry.get_desktop_file_path() : null;
+          if (info == null || desktop_path == null || !seen.add(desktop_path)) {
+            continue;
+          }
+
+          var icon = DrawingService.get_icon_from_gicon(info.get_icon()) ?? "";
+          if (icon == "") {
+            icon = "application-x-executable";
+          }
+          entries.add(new ApplicationsGridEntry(info.get_display_name() ?? _("Unknown"), icon, desktop_path));
+        }
+      }
     }
 
     public override Gee.ArrayList<Gtk.MenuItem> get_menu_items() {
@@ -382,6 +451,13 @@ namespace Docky {
         build_applications_menu();
       });
       items.add(large_icons_item);
+
+      var grid_view_item = new Gtk.CheckMenuItem.with_mnemonic(_("_Grid View"));
+      grid_view_item.active = prefs.GridView;
+      grid_view_item.activate.connect(() => {
+        prefs.GridView = !prefs.GridView;
+      });
+      items.add(grid_view_item);
 
       return items;
     }

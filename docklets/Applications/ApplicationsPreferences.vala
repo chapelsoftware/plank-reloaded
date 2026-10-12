@@ -21,6 +21,9 @@ namespace Docky {
   public class ApplicationsPreferences : DockItemPreferences {
     public string CustomIcon { get; set; default = ""; }
 
+    [Description(nick = "grid-view", blurb = "Show the applications in a macOS-style grid instead of a menu.")]
+    public bool GridView { get; set; default = false; }
+
     public ApplicationsPreferences.with_file (GLib.File file)
     {
       base.with_file (file);
@@ -30,6 +33,7 @@ namespace Docky {
       base.reset_properties ();
       LargeIcons = false;
       CustomIcon = "";
+      GridView = false;
     }
   }
 }
