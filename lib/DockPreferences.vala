@@ -105,6 +105,9 @@ namespace Plank {
     [Description (nick = "pinned-only", blurb = "Whether to show only pinned applications. Useful for running more then one dock.")]
     public bool PinnedOnly { get; set; }
 
+    [Description (nick = "monitor-exclusive", blurb = "Whether this dock shows no pinned items and lists only windows on its own monitor; other docks then hide unpinned entries for apps on that monitor.")]
+    public bool MonitorExclusive { get; set; }
+
     [Description (nick = "auto-pinning", blurb = "Whether to automatically pin an application if it seems useful to do.")]
     public bool AutoPinning { get; set; }
 

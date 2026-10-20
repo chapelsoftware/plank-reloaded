@@ -68,6 +68,11 @@ namespace Plank {
     int monitor_num;
     int last_update_monitor_num;
 
+    /**
+     * The Gdk monitor index this dock is tracked on.
+     */
+    public int MonitorNum { get { return monitor_num; } }
+
     // Work-area mode state: external panel margins around the raw monitor
     // geometry, measured from the per-monitor work area. The three edges we
     // reserve nothing on always measure clean; the dock's own edge can only

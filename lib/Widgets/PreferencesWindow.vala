@@ -104,6 +104,8 @@ namespace Plank {
     unowned Gtk.Switch sw_zoom_enabled;
     [GtkChild]
     unowned Gtk.Switch sw_bring_to_workspace;
+    [GtkChild]
+    unowned Gtk.Switch sw_monitor_exclusive;
 
     [GtkChild]
     unowned Gtk.IconView view_docklets;
@@ -201,6 +203,9 @@ namespace Plank {
         break;
       case "PinnedOnly":
         sw_show_unpinned.set_active (!prefs.PinnedOnly);
+        break;
+      case "MonitorExclusive":
+        sw_monitor_exclusive.set_active (prefs.MonitorExclusive);
         break;
       case "Position":
         cb_position.active_id = ((int) prefs.Position).to_string ();
@@ -312,6 +317,10 @@ namespace Plank {
 
     void show_unpinned_toggled (GLib.Object widget, ParamSpec param) {
       prefs.PinnedOnly = !((Gtk.Switch) widget).get_active ();
+    }
+
+    void monitor_exclusive_toggled (GLib.Object widget, ParamSpec param) {
+      prefs.MonitorExclusive = ((Gtk.Switch) widget).get_active ();
     }
 
     void lock_items_toggled (GLib.Object widget, ParamSpec param) {
@@ -467,6 +476,7 @@ namespace Plank {
       sw_workspace_only.notify["active"].connect (workspace_only_toggled);
       sw_bring_to_workspace.notify["active"].connect (bring_to_workspace_toggled);
       sw_show_unpinned.notify["active"].connect (show_unpinned_toggled);
+      sw_monitor_exclusive.notify["active"].connect (monitor_exclusive_toggled);
       sw_lock_items.notify["active"].connect (lock_items_toggled);
       sw_tooltips_enabled.notify["active"].connect (tooltips_enabled_toggled);
       sw_previews_enabled.notify["active"].connect (previews_enabled_toggled);
@@ -504,6 +514,7 @@ namespace Plank {
       sw_workspace_only.notify["active"].disconnect (workspace_only_toggled);
       sw_bring_to_workspace.notify["active"].disconnect (bring_to_workspace_toggled);
       sw_show_unpinned.notify["active"].disconnect (show_unpinned_toggled);
+      sw_monitor_exclusive.notify["active"].disconnect (monitor_exclusive_toggled);
       sw_lock_items.notify["active"].disconnect (lock_items_toggled);
       sw_tooltips_enabled.notify["active"].disconnect (tooltips_enabled_toggled);
       sw_previews_enabled.notify["active"].disconnect (previews_enabled_toggled);
@@ -562,6 +573,7 @@ namespace Plank {
       sw_workspace_only.set_active (prefs.CurrentWorkspaceOnly);
       sw_bring_to_workspace.set_active (prefs.BringToCurrentWorkspace);
       sw_show_unpinned.set_active (!prefs.PinnedOnly);
+      sw_monitor_exclusive.set_active (prefs.MonitorExclusive);
       sw_lock_items.set_active (prefs.LockItems);
       sw_tooltips_enabled.set_active (prefs.TooltipsEnabled);
       sw_previews_enabled.set_active (prefs.PreviewsEnabled);

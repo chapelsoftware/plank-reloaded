@@ -25,6 +25,8 @@ namespace PlankTests
 	{
 		Test.add_func ("/Controller/construct_default", controller_construct_default);
 		Test.add_func ("/Controller/construct_custom", controller_construct_custom);
+		Test.add_func ("/Controller/monitor_exclusive_registry", controller_monitor_exclusive_registry);
+		Test.add_func ("/Controller/monitor_exclusive_strips_pinned", controller_monitor_exclusive_strips_pinned);
 	}
 
 	DockItem create_controller_testitem ()
@@ -88,6 +90,63 @@ namespace PlankTests
 		File config_folder = Paths.AppConfigFolder.get_child (TEST_DOCK_NAME);
 		controller = new DockController (TEST_DOCK_NAME, config_folder);
 		controller.initialize ();
+	}
+
+	void controller_monitor_exclusive_registry ()
+	{
+		// A sibling dock's MonitorExclusive flag must be visible through
+		// DockController.any_dock_monitor_exclusive () so every provider
+		// in the process can switch on per-monitor filtering together.
+		File main_folder = Paths.AppConfigFolder.get_child ("test_mx_main");
+		File side_folder = Paths.AppConfigFolder.get_child ("test_mx_side");
+
+		var main_dock = new DockController ("test_mx_main", main_folder);
+		var side_dock = new DockController ("test_mx_side", side_folder);
+
+		main_dock.prefs.MonitorExclusive = false;
+		side_dock.prefs.MonitorExclusive = false;
+		assert (DockController.any_dock_monitor_exclusive () == false);
+
+		side_dock.prefs.MonitorExclusive = true;
+		assert (DockController.any_dock_monitor_exclusive () == true);
+
+		side_dock.prefs.MonitorExclusive = false;
+		assert (DockController.any_dock_monitor_exclusive () == false);
+	}
+
+	void controller_monitor_exclusive_strips_pinned ()
+	{
+		// Flipping MonitorExclusive on at runtime must drop persistent
+		// items from the default provider; flipping it off must restore
+		// the ones whose .dockitem files live in launchers_folder.
+		File config_folder = Paths.AppConfigFolder.get_child ("test_mx_strip");
+		var controller = new DockController ("test_mx_strip", config_folder);
+		controller.initialize ();
+
+		unowned DockItemProvider? provider = controller.default_provider;
+		assert (provider != null);
+
+		var item = create_controller_testitem ();
+		provider.add (item);
+		int persistent_count_before = 0;
+		foreach (var e in provider.Elements)
+			if (e is DockItem && !(e is TransientDockItem) && !(e is PlaceholderDockItem))
+				persistent_count_before++;
+		assert (persistent_count_before >= 1);
+
+		controller.prefs.MonitorExclusive = true;
+		int persistent_count_after_on = 0;
+		foreach (var e in provider.Elements)
+			if (e is DockItem && !(e is TransientDockItem) && !(e is PlaceholderDockItem))
+				persistent_count_after_on++;
+		assert (persistent_count_after_on == 0);
+
+		controller.prefs.MonitorExclusive = false;
+		int persistent_count_after_off = 0;
+		foreach (var e in provider.Elements)
+			if (e is DockItem && !(e is TransientDockItem) && !(e is PlaceholderDockItem))
+				persistent_count_after_off++;
+		assert (persistent_count_after_off >= persistent_count_before);
 	}
 
 	void controller_items_match (DockController controller)

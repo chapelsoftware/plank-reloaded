@@ -25,6 +25,9 @@ namespace Plank {
     public DockPreferences Prefs { get; construct; }
 
     bool current_workspace_only;
+    bool monitor_filter_connected = false;
+    // Windows we've connected geometry_changed on, keyed by XID.
+    Gee.HashMap<ulong, unowned Wnck.Window>? geometry_watched_windows = null;
 
     /**
      * Creates the default container for dock items.
@@ -47,6 +50,8 @@ namespace Plank {
 
       if (current_workspace_only)
         connect_wnck ();
+
+      update_monitor_filter_connection ();
     }
 
     ~DefaultApplicationDockItemProvider () {
@@ -57,6 +62,123 @@ namespace Plank {
 
       if (current_workspace_only)
         disconnect_wnck ();
+
+      if (monitor_filter_connected)
+        disconnect_monitor_filter ();
+    }
+
+    bool monitor_filter_enabled () {
+      return DockController.any_dock_monitor_exclusive ();
+    }
+
+    unowned DockController? owning_dock () {
+      return Container as DockController;
+    }
+
+    int this_dock_monitor_num () {
+      unowned DockController? dc = owning_dock ();
+      if (dc == null || dc.position_manager == null)
+        return -1;
+      return dc.position_manager.MonitorNum;
+    }
+
+    public void monitor_filter_changed () {
+      update_monitor_filter_connection ();
+      // The newly-exclusive dock also needs to resync its own transient
+      // membership: synthesize the running apps as if they just opened,
+      // and recheck visibility.
+      if (Prefs.MonitorExclusive)
+        match_running_applications ();
+      update_visible_elements ();
+    }
+
+    void update_monitor_filter_connection () {
+      bool want = monitor_filter_enabled ();
+      if (want == monitor_filter_connected)
+        return;
+
+      if (want)
+        connect_monitor_filter ();
+      else
+        disconnect_monitor_filter ();
+    }
+
+    void connect_monitor_filter () {
+      if (monitor_filter_connected)
+        return;
+
+      geometry_watched_windows = new Gee.HashMap<ulong, unowned Wnck.Window> ();
+
+      unowned Wnck.Screen screen = WindowControl.get_wnck_screen ();
+      screen.window_opened.connect_after (handle_window_opened_for_monitor_filter);
+      screen.window_closed.connect_after (handle_window_closed_for_monitor_filter);
+
+      foreach (unowned Wnck.Window window in screen.get_windows ())
+        watch_window_geometry (window);
+
+      monitor_filter_connected = true;
+    }
+
+    void disconnect_monitor_filter () {
+      if (!monitor_filter_connected)
+        return;
+
+      unowned Wnck.Screen screen = WindowControl.get_wnck_screen ();
+      screen.window_opened.disconnect (handle_window_opened_for_monitor_filter);
+      screen.window_closed.disconnect (handle_window_closed_for_monitor_filter);
+
+      if (geometry_watched_windows != null) {
+        foreach (unowned Wnck.Window window in geometry_watched_windows.values) {
+          if (window != null)
+            window.geometry_changed.disconnect (handle_window_geometry_changed);
+        }
+        geometry_watched_windows.clear ();
+        geometry_watched_windows = null;
+      }
+
+      monitor_filter_connected = false;
+    }
+
+    void watch_window_geometry (Wnck.Window? window) {
+      if (window == null || geometry_watched_windows == null)
+        return;
+      ulong xid = window.get_xid ();
+      if (geometry_watched_windows.has_key (xid))
+        return;
+      geometry_watched_windows[xid] = window;
+      window.geometry_changed.connect_after (handle_window_geometry_changed);
+    }
+
+    [CCode (instance_pos = -1)]
+    void handle_window_opened_for_monitor_filter (Wnck.Screen screen, Wnck.Window? window) {
+      watch_window_geometry (window);
+      recheck_monitor_filter_state ();
+    }
+
+    [CCode (instance_pos = -1)]
+    void handle_window_closed_for_monitor_filter (Wnck.Screen screen, Wnck.Window? window) {
+      if (window != null && geometry_watched_windows != null) {
+        ulong xid = window.get_xid ();
+        if (geometry_watched_windows.has_key (xid)) {
+          window.geometry_changed.disconnect (handle_window_geometry_changed);
+          geometry_watched_windows.unset (xid);
+        }
+      }
+      recheck_monitor_filter_state ();
+    }
+
+    [CCode (instance_pos = -1)]
+    void handle_window_geometry_changed (Wnck.Window window) {
+      recheck_monitor_filter_state ();
+    }
+
+    // A monitor-exclusive dock gains and loses items as windows move
+    // across monitors, so we re-run match_running_applications to pick up
+    // newly-arrived apps, then update attach state for everyone.
+    void recheck_monitor_filter_state () {
+      if (Prefs.MonitorExclusive)
+        match_running_applications ();
+      update_visible_elements ();
     }
 
     public void trigger_update_visible_elements (bool update_indicator) {
@@ -66,36 +188,35 @@ namespace Plank {
     protected void internal_update_visible_elements (bool update_indicator) {
       Logger.verbose ("DefaultDockItemProvider.update_visible_items ()");
 
-      if (Prefs.CurrentWorkspaceOnly) {
-        unowned Wnck.Workspace? active_workspace = WindowControl.get_wnck_screen ().get_active_workspace ();
-        foreach (var item in internal_elements) {
-          unowned TransientDockItem? transient = (item as TransientDockItem);
+      bool monitor_filter = monitor_filter_enabled ();
+      int this_monitor = monitor_filter ? this_dock_monitor_num () : -1;
+      unowned Wnck.Workspace? active_workspace = Prefs.CurrentWorkspaceOnly
+        ? WindowControl.get_wnck_screen ().get_active_workspace () : null;
 
-          item.IsAttached = (transient == null || transient.App == null || active_workspace == null
-                             || WindowControl.has_window_on_workspace (transient.App, active_workspace));
+      foreach (var item in internal_elements) {
+        unowned TransientDockItem? transient = (item as TransientDockItem);
 
-          if (update_indicator && item.IsAttached) {
-            unowned ApplicationDockItem? app_item = (item as ApplicationDockItem);
-            if (app_item != null) {
-              app_item.external_update_indicator ();
-            }
-          }
+        bool attached;
+        if (transient == null || transient.App == null) {
+          // Pinned items are always attached on their own dock.
+          attached = true;
+        } else if (Prefs.CurrentWorkspaceOnly) {
+          attached = (active_workspace == null
+                      || WindowControl.has_window_on_workspace (transient.App, active_workspace));
+          if (attached && monitor_filter && this_monitor >= 0)
+            attached = WindowControl.has_window_on_monitor (transient.App, this_monitor);
+        } else if (monitor_filter && this_monitor >= 0) {
+          attached = WindowControl.has_window_on_monitor (transient.App, this_monitor);
+        } else {
+          attached = WindowControl.has_window (transient.App);
         }
-      } else {
-        foreach (var item in internal_elements) {
-          unowned TransientDockItem? transient = (item as TransientDockItem);
 
-          if (transient == null || transient.App == null) {
-            item.IsAttached = true;
-          } else {
-            item.IsAttached = WindowControl.has_window (transient.App);
-          }
+        item.IsAttached = attached;
 
-          if (update_indicator && item.IsAttached) {
-            unowned ApplicationDockItem? app_item = (item as ApplicationDockItem);
-            if (app_item != null) {
-              app_item.external_update_indicator ();
-            }
+        if (update_indicator && item.IsAttached) {
+          unowned ApplicationDockItem? app_item = (item as ApplicationDockItem);
+          if (app_item != null) {
+            app_item.external_update_indicator ();
           }
         }
       }
@@ -111,17 +232,22 @@ namespace Plank {
      * {@inheritDoc}
      */
     public override void prepare () {
-      // Register the pinned launchers as BAMF favorites in one call;
-      // launchers pinned later are registered in connect_element ()
-      var favs = new Gee.ArrayList<string> ();
+      // A monitor-exclusive dock holds no pinned items; skipping the empty
+      // favorites call keeps it from clobbering BAMF's shared favorites set
+      // that the primary dock just registered.
+      if (!Prefs.MonitorExclusive) {
+        // Register the pinned launchers as BAMF favorites in one call;
+        // launchers pinned later are registered in connect_element ()
+        var favs = new Gee.ArrayList<string> ();
 
-      foreach (var element in internal_elements) {
-        unowned ApplicationDockItem? item = (element as ApplicationDockItem);
-        if (item != null && !(item is TransientDockItem))
-          favs.add (item.Launcher);
+        foreach (var element in internal_elements) {
+          unowned ApplicationDockItem? item = (element as ApplicationDockItem);
+          if (item != null && !(item is TransientDockItem))
+            favs.add (item.Launcher);
+        }
+
+        Matcher.get_default ().set_favorites (favs);
       }
-
-      Matcher.get_default ().set_favorites (favs);
 
       match_running_applications ();
     }
@@ -144,6 +270,16 @@ namespace Plank {
 
       if (Prefs.PinnedOnly)
         return;
+
+      // A monitor-exclusive dock only hosts transients whose windows are on
+      // its monitor; other apps live on another dock. The attach check in
+      // update_visible_elements still runs after this and hides items when
+      // their windows move away.
+      if (Prefs.MonitorExclusive) {
+        int this_monitor = this_dock_monitor_num ();
+        if (this_monitor < 0 || !WindowControl.has_window_on_monitor (app, this_monitor))
+          return;
+      }
 
       // Make sure plank never shows up if we don't want the dock item.
       if (!Prefs.ShowDockItem) {
@@ -242,6 +378,8 @@ namespace Plank {
       var transient_items = new Gee.ArrayList<DockElement> ();
       var transient_launchers = new Gee.HashMap<string, TransientDockItem> ();
 
+      int this_monitor = Prefs.MonitorExclusive ? this_dock_monitor_num () : -1;
+
       // Match running applications to their available dock-items, and add
       // items for the others unless only pinned items are shown. A launcher
       // gets one item, which takes the windows of every application sharing it
@@ -266,6 +404,11 @@ namespace Plank {
 
         if (Prefs.PinnedOnly)
           continue;
+
+        if (Prefs.MonitorExclusive) {
+          if (this_monitor < 0 || !WindowControl.has_window_on_monitor (app, this_monitor))
+            continue;
+        }
 
         var new_item = new TransientDockItem.with_application (app);
         if (launcher != null)

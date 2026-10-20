@@ -932,6 +932,38 @@ along with plank.  If not, see <http://www.gnu.org/licenses/>.
                 <property name="top_attach">7</property>
               </packing>
             </child>
+            <child>
+              <object class="GtkLabel" id="l_monitor_exclusive">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <property name="halign">end</property>
+                <property
+                  name="label"
+                  translatable="yes"
+                >Monitor-Exclusive:</property>
+                <property name="justify">right</property>
+              </object>
+              <packing>
+                <property name="left_attach">2</property>
+                <property name="top_attach">10</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkSwitch" id="sw_monitor_exclusive">
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="halign">start</property>
+                <property name="valign">center</property>
+                <property
+                  name="tooltip_text"
+                  translatable="yes"
+                >Show no pinned items on this dock and list only windows that live on this dock's monitor. When any dock has this on, other docks also hide unpinned entries for apps whose windows are on that monitor.</property>
+              </object>
+              <packing>
+                <property name="left_attach">3</property>
+                <property name="top_attach">10</property>
+              </packing>
+            </child>
           </object>
           <packing>
             <property name="name">grid_behaviour</property>

@@ -140,6 +140,11 @@
 			<summary>Only show pinned applications</summary>
 			<description>If true, only show pinned applications. Useful for running more than one dock.</description>
 		</key>
+		<key name="monitor-exclusive" type="b">
+			<default>false</default>
+			<summary>Monitor-exclusive secondary dock</summary>
+			<description>If true, this dock shows no pinned items and only lists windows that live on its own monitor. When any dock has this on, every other dock also hides unpinned entries for apps whose windows are on that monitor, while keeping pinned icons visible.</description>
+		</key>
 		<key name="position" enum='GtkPositionType'>
 			<default>'bottom'</default>
 			<summary>The position for the dock on the monitor</summary>

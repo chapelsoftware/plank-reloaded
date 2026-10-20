@@ -605,6 +605,73 @@ namespace Plank {
       return false;
     }
 
+    // Pick, among a list of monitor geometries, the one that contains the
+    // largest share of a window. Returns -1 if nothing overlaps. Split out
+    // from monitor_for_window so the overlap math stays unit-testable.
+    public static int pick_monitor_for_rect (Gdk.Rectangle win, Gdk.Rectangle[] monitors) {
+      if (win.width <= 0 || win.height <= 0)
+        return -1;
+
+      int best = -1;
+      int best_area = 0;
+      for (int i = 0; i < monitors.length; i++) {
+        var geo = monitors[i];
+
+        int ix = int.max (win.x, geo.x);
+        int iy = int.max (win.y, geo.y);
+        int ir = int.min (win.x + win.width, geo.x + geo.width);
+        int ib = int.min (win.y + win.height, geo.y + geo.height);
+
+        if (ir <= ix || ib <= iy)
+          continue;
+
+        int area = (ir - ix) * (ib - iy);
+        if (area > best_area) {
+          best_area = area;
+          best = i;
+        }
+      }
+
+      return best;
+    }
+
+    // Pick the Gdk monitor that contains the largest share of a Wnck window.
+    // Returns -1 if no monitor overlaps or the window is not readable.
+    public static int monitor_for_window (Wnck.Window window) {
+      if (window == null)
+        return -1;
+
+      int x, y, w, h;
+      window.get_geometry (out x, out y, out w, out h);
+
+      unowned Gdk.Display display = Gdk.Display.get_default ();
+      if (display == null)
+        return -1;
+
+      int n = display.get_n_monitors ();
+      var geos = new Gdk.Rectangle[n];
+      for (int i = 0; i < n; i++)
+        geos[i] = display.get_monitor (i).get_geometry ();
+
+      Gdk.Rectangle win = { x, y, w, h };
+      return pick_monitor_for_rect (win, geos);
+    }
+
+    public static bool has_window_on_monitor (Bamf.Application app, int monitor_num) {
+      if (monitor_num < 0)
+        return false;
+
+      foreach (unowned Wnck.Window window in get_ordered_window_stack (app)) {
+        if (window == null || window.is_skip_tasklist ())
+          continue;
+
+        if (monitor_for_window (window) == monitor_num)
+          return true;
+      }
+
+      return false;
+    }
+
     public static int window_count (Bamf.Application app) {
       int window_count = 0;
 

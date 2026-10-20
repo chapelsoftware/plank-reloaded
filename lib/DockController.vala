@@ -26,6 +26,21 @@ namespace Plank {
    * All needed controlling parts will be created and initialized.
    */
   public class DockController : DockContainer {
+    // Every live DockController in this process. Lets a provider see what
+    // its sibling docks are set to (monitor-exclusive filtering uses it).
+    static Gee.ArrayList<unowned DockController> live_docks = new Gee.ArrayList<unowned DockController> ();
+
+    public static Gee.ArrayList<unowned DockController> get_live_docks () {
+      return live_docks;
+    }
+
+    public static bool any_dock_monitor_exclusive () {
+      foreach (unowned DockController dc in live_docks)
+        if (dc.prefs.MonitorExclusive)
+          return true;
+      return false;
+    }
+
     public string name { get; construct; }
     public File config_folder { get; construct; }
     public File launchers_folder { get; private set; }
@@ -101,8 +116,11 @@ namespace Plank {
       visible_items = new Gee.ArrayList<unowned DockItem> ();
       new_visible_items = new Gee.ArrayList<unowned DockItem> ();
 
+      live_docks.add (this);
+
       prefs.notify["Position"].connect (update_visible_elements);
       prefs.notify["ShowDockItem"].connect (update_show_dock_item);
+      prefs.notify["MonitorExclusive"].connect (notify_sibling_docks_monitor_filter_changed);
 
       dbus_manager = new DBusManager (this);
 
@@ -117,8 +135,11 @@ namespace Plank {
     }
 
     ~DockController () {
+      live_docks.remove (this);
+
       prefs.notify["Position"].disconnect (update_visible_elements);
       prefs.notify["ShowDockItem"].disconnect (update_show_dock_item);
+      prefs.notify["MonitorExclusive"].disconnect (notify_sibling_docks_monitor_filter_changed);
 
       positions_changed.disconnect (handle_positions_changed);
       states_changed.disconnect (handle_states_changed);
@@ -158,6 +179,16 @@ namespace Plank {
       hide_manager.initialize ();
       renderer.initialize ();
 
+      // provider.prepare () ran before position_manager knew its monitor,
+      // so a monitor-exclusive dock would have dropped every candidate
+      // transient and non-exclusive docks could not yet filter by monitor.
+      // Replay now that the monitor is known.
+      if (any_dock_monitor_exclusive ()) {
+        unowned DefaultApplicationDockItemProvider? provider = default_provider as DefaultApplicationDockItemProvider;
+        if (provider != null)
+          provider.monitor_filter_changed ();
+      }
+
       window.show_all ();
 
       // A window that BAMF reported before Wnck had read it missed its
@@ -183,6 +214,15 @@ namespace Plank {
 
       Logger.verbose ("DockController.add_default_provider ()");
       default_provider = create_default_provider ();
+
+      // A monitor-exclusive dock starts empty: no pinned launchers, no
+      // defaults, no docklets. Transient items for windows on this dock's
+      // monitor will fill it at runtime.
+      if (prefs.MonitorExclusive) {
+        add (default_provider);
+        schedule_serialize_item_positions ();
+        return;
+      }
 
       var elements = Factory.item_factory.load_elements (launchers_folder, prefs.DockItems);
 
@@ -384,6 +424,55 @@ namespace Plank {
         return;
 
       serialize_item_positions_timer_id = Gdk.threads_add_timeout (ITEM_SERIALIZATION_DELAY, (SourceFunc) serialize_item_positions);
+    }
+
+    void notify_sibling_docks_monitor_filter_changed () {
+      // Rebuild this dock's persistent items to match the new mode before
+      // every provider in the process re-filters its transients.
+      apply_monitor_exclusive_change ();
+
+      foreach (unowned DockController dc in live_docks) {
+        unowned DefaultApplicationDockItemProvider? provider = dc.default_provider as DefaultApplicationDockItemProvider;
+        if (provider != null)
+          provider.monitor_filter_changed ();
+      }
+    }
+
+    void apply_monitor_exclusive_change () {
+      unowned DefaultApplicationDockItemProvider? provider = default_provider as DefaultApplicationDockItemProvider;
+      if (provider == null)
+        return;
+
+      if (prefs.MonitorExclusive) {
+        // Strip every persistent (non-transient) item. The launcher
+        // .dockitem files stay on disk so toggling back restores them.
+        var to_remove = new Gee.ArrayList<DockElement> ();
+        foreach (var element in provider.Elements) {
+          if (element is TransientDockItem)
+            continue;
+          if (element is PlaceholderDockItem)
+            continue;
+          if (element is DockItem)
+            to_remove.add (element);
+        }
+        provider.remove_all (to_remove);
+
+        if (dock_itself_item != null && internal_elements.contains (dock_itself_item))
+          remove (dock_itself_item);
+      } else {
+        // Reload the pinned items the exclusive mode had hidden.
+        var elements = Factory.item_factory.load_elements (launchers_folder, prefs.DockItems);
+        foreach (var element in elements) {
+          unowned DockItem? di = element as DockItem;
+          if (di == null)
+            continue;
+          if (di.Launcher.length > 0 && provider.item_for_uri (di.Launcher) != null)
+            continue;
+          provider.add (di);
+        }
+
+        update_show_dock_item ();
+      }
     }
 
     bool serialize_item_positions () {

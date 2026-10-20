@@ -58,6 +58,10 @@ namespace PlankTests {
     Test.add_func ("/Services/SessionType/case_insensitive", session_type_case);
     Test.add_func ("/Services/SessionType/unknown_defaults", session_type_unknown);
     Test.add_func ("/Services/ColorPrefs/round_trip", color_prefs_round_trip);
+    Test.add_func ("/Services/WindowControl/pick_monitor_fully_inside", pick_monitor_fully_inside);
+    Test.add_func ("/Services/WindowControl/pick_monitor_straddling_picks_bigger_share", pick_monitor_straddling);
+    Test.add_func ("/Services/WindowControl/pick_monitor_no_overlap", pick_monitor_no_overlap);
+    Test.add_func ("/Services/WindowControl/pick_monitor_zero_sized_window", pick_monitor_zero_sized);
     Test.add_func ("/Services/ColorPrefs/clamping", color_prefs_clamping);
     Test.add_func ("/Services/ColorPrefs/format", color_prefs_format);
     Test.add_func ("/Services/DockDrawPosition/bottom_visible", draw_position_bottom_visible);
@@ -2429,5 +2433,55 @@ namespace PlankTests {
 
     // A file too short to hold the type isn't one either
     assert (!is_appimage_header (type2[0:10]));
+  }
+
+  // A two-monitor side-by-side layout: left monitor at x=0 and right at
+  // x=1920. These tests pin down pick_monitor_for_rect, the overlap math
+  // behind the monitor-exclusive filter's per-window monitor lookup.
+  Gdk.Rectangle[] two_side_by_side_monitors () {
+    return new Gdk.Rectangle[] {
+      { 0, 0, 1920, 1080 },
+      { 1920, 0, 1920, 1080 },
+    };
+  }
+
+  void pick_monitor_fully_inside () {
+    var monitors = two_side_by_side_monitors ();
+
+    Gdk.Rectangle on_left = { 100, 100, 800, 600 };
+    assert (WindowControl.pick_monitor_for_rect (on_left, monitors) == 0);
+
+    Gdk.Rectangle on_right = { 2500, 100, 800, 600 };
+    assert (WindowControl.pick_monitor_for_rect (on_right, monitors) == 1);
+  }
+
+  void pick_monitor_straddling () {
+    var monitors = two_side_by_side_monitors ();
+
+    // Window sits at x=1800 and is 400 wide: 120 pixels on the left
+    // monitor, 280 pixels on the right. The pick must follow the
+    // larger share.
+    Gdk.Rectangle mostly_right = { 1800, 100, 400, 600 };
+    assert (WindowControl.pick_monitor_for_rect (mostly_right, monitors) == 1);
+
+    Gdk.Rectangle mostly_left = { 1600, 100, 400, 600 };
+    assert (WindowControl.pick_monitor_for_rect (mostly_left, monitors) == 0);
+  }
+
+  void pick_monitor_no_overlap () {
+    var monitors = two_side_by_side_monitors ();
+
+    Gdk.Rectangle below_both = { 500, 2000, 400, 400 };
+    assert (WindowControl.pick_monitor_for_rect (below_both, monitors) == -1);
+  }
+
+  void pick_monitor_zero_sized () {
+    var monitors = two_side_by_side_monitors ();
+
+    Gdk.Rectangle zero_wide = { 100, 100, 0, 600 };
+    assert (WindowControl.pick_monitor_for_rect (zero_wide, monitors) == -1);
+
+    Gdk.Rectangle zero_tall = { 100, 100, 800, 0 };
+    assert (WindowControl.pick_monitor_for_rect (zero_tall, monitors) == -1);
   }
 }
